@@ -26,10 +26,10 @@ def get_dp_mean(data, eps, low, high):
     noise = np.random.laplace(0, sensitivity / eps)
     return true_mean + noise, sensitivity
 
-# m_x is the DP-sanitized output M(X)
+# m_x = DP-sanitized output M(X)
 m_x, sensitivity = get_dp_mean(data, epsilon, lower_bound, upper_bound)
 
-# 4. Define Candidate Trace T based on the Table 1 fields
+# Define Candidate Trace T based on the Table 1 fields
 trace_candidates = [
     {"id": 0, "name": "Clipping Bounds", "value": f"[{lower_bound}, {upper_bound}]", "type": "data-aware"},
     {"id": 1, "name": "Mechanism Type", "value": "Laplace", "type": "post-processing"},
@@ -64,7 +64,6 @@ def calculate_preprocessing(data, trace_candidates):
 
     return W, U
 
-# Initialization of arrays W and U 
 W, U = calculate_preprocessing(data, trace_candidates)
 
 # Optimization (0-1 Knapsack) to select fields for tau* 
