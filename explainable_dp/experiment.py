@@ -73,8 +73,6 @@ def solve_knapsack(weights, values, capacity):
     cap = int(capacity * 100)
     wt = [int(w * 100) for w in weights]
     val = [int(v * 100) for v in values]
-    
-    # 2D table to find optimal set x
     dp = np.zeros((n + 1, cap + 1))
     
     for i in range(1, n + 1):
@@ -93,17 +91,41 @@ def solve_knapsack(weights, values, capacity):
             selected_indices.append(i-1)
             res -= val[i-1]
             w -= wt[i-1]
-            
     return selected_indices
 
-# Set Total Privacy-Loss Budget (epsilon_total) 
-epsilon_total = 0.10 
+# Ablation Study Execution
 
-# Solving for optimal tau* 
-selected_idx = solve_knapsack(W, U, epsilon_total)
+def run_evaluation_study(m_x, candidates, weights, values, epsilon_total):
+    print("="*60)
+    print("Ablation Study")
+    print("="*60)
 
-print(f"DP Mean Output M(X): {m_x:.4f}")
-print(f"\n--- FINAL OUTPUT: Optimized Provenance Trace (tau*) ---")
-for idx in selected_idx:
-    # Outputting the selected fields for the joint release A(X)
-    print(f"REVEALED: {trace_candidates[idx]['name']} = {trace_candidates[idx]['value']}")
+    # Level 1: Without Provenance 
+    print(f"\n[Level 1: Baseline Output (No Provenance)]")
+    print(f"Released: M(X) = {m_x:.4f}")
+    print("Privacy Leakage: 0.00 (Standard DP Guarantee)")
+
+    # Level 2: Post-Processing Only 
+    print(f"\n[Level 2: Post-Processing Only]")
+    print(f"Released: M(X) = {m_x:.4f}")
+    for i, field in enumerate(candidates):
+        if weights[i] == 0:
+            print(f" + REVEALED (Free): {field['name']} = {field['value']}")
+    print("Privacy Leakage: 0.00 (Post-processing property)")
+
+    # Level 3: Optimized Provenance (Algorithm 1) 
+    print(f"\n[Level 3: Optimized Provenance")
+    print(f"Released: M(X) = {m_x:.4f}")
+    selected_idx = solve_knapsack(weights, values, epsilon_total)
+    
+    total_utility = 0
+    total_cost = 0
+    for idx in selected_idx:
+        print(f" + REVEALED: {candidates[idx]['name']} = {candidates[idx]['value']}")
+        total_utility += values[idx]
+        total_cost += weights[idx]
+    
+    print(f"Summary: Total Utility = {total_utility:.2f} | Total Privacy Cost = {total_cost:.2f}/{epsilon_total}")
+
+epsilon_limit = 0.10
+run_evaluation_study(m_x, trace_candidates, W, U, epsilon_limit)
