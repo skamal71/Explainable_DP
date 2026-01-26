@@ -43,10 +43,11 @@ def calculate_preprocessing(data, trace_candidates):
 
     for field in trace_candidates:
         # Privacy Cost calculation (Log-Odds Shift) 
+        # heuristic values based on field type and name
         if field['type'] == "post-processing":
             W.append(0.00) 
         elif field['name'] == "Clipping Bounds":
-            # Data-aware provenance varies with dataset and adds risk
+            # Data-aware provenance field adds risk
             W.append(0.02) 
         elif field['name'] == "Sensitivity":
             # Max log-odds shift caused by observing trace beyond DP output
@@ -66,8 +67,7 @@ def calculate_preprocessing(data, trace_candidates):
 
 W, U = calculate_preprocessing(data, trace_candidates)
 
-# Optimization (0-1 Knapsack) to select fields for tau* 
-# Objective: Maximize sum of x_i * u_i subject to sum of x_i * w_i <= epsilon_total 
+# Applying Knapsack Optimization
 def solve_knapsack(weights, values, capacity):
     n = len(values)
     cap = int(capacity * 100)
@@ -93,8 +93,7 @@ def solve_knapsack(weights, values, capacity):
             w -= wt[i-1]
     return selected_indices
 
-# Ablation Study Execution
-
+# Ablation Study Comparison
 def run_evaluation_study(m_x, candidates, weights, values, epsilon_total):
     print("="*60)
     print("Ablation Study")
