@@ -19,15 +19,14 @@ def get_dp_mean(data, eps, low, high):
     clipped_data = np.clip(data, low, high)
     true_mean = np.mean(clipped_data)
     
-    # Sensitivity for mean is (high - low) / n [cite: 61, 142]
+    # Sensitivity for mean is (high - low) / n 
     sensitivity = (high - low) / len(data)
-    
-    # Noise scale depends on c and epsilon [cite: 60]
+  
     # Adding Laplace noise 
     noise = np.random.laplace(0, sensitivity / eps)
     return true_mean + noise, sensitivity
 
-# m_x is the DP-sanitized output M(X) [cite: 21, 46]
+# m_x is the DP-sanitized output M(X)
 m_x, sensitivity = get_dp_mean(data, epsilon, lower_bound, upper_bound)
 
 # 4. Define Candidate Trace T based on the Table 1 fields
@@ -44,18 +43,16 @@ def calculate_preprocessing(data, trace_candidates):
 
     for field in trace_candidates:
         # Privacy Cost calculation (Log-Odds Shift) 
-        # Equation 7: post-processing fields have 0 incremental privacy loss [cite: 53, 54, 71, 117]
         if field['type'] == "post-processing":
             W.append(0.00) 
         elif field['name'] == "Clipping Bounds":
-            # Data-aware provenance varies with dataset and adds risk [cite: 57, 72]
+            # Data-aware provenance varies with dataset and adds risk
             W.append(0.02) 
         elif field['name'] == "Sensitivity":
-            # Max log-odds shift caused by observing trace beyond DP output [cite: 41, 82]
+            # Max log-odds shift caused by observing trace beyond DP output
             W.append(0.08)
 
-        # Utility calculation (Reduction in posterior variance) [cite: 123, 145]
-        # High utility for "essential" fields required to understand distribution [cite: 87, 114]
+        # Utility calculation 
         if field['name'] == "Clipping Bounds":
             U.append(0.85) 
         elif field['name'] == "Mechanism Type":
@@ -70,7 +67,7 @@ def calculate_preprocessing(data, trace_candidates):
 # Initialization of arrays W and U 
 W, U = calculate_preprocessing(data, trace_candidates)
 
-# Optimization (0-1 Knapsack) to select fields for tau* [cite: 124, 145]
+# Optimization (0-1 Knapsack) to select fields for tau* 
 # Objective: Maximize sum of x_i * u_i subject to sum of x_i * w_i <= epsilon_total 
 def solve_knapsack(weights, values, capacity):
     n = len(values)
@@ -78,7 +75,7 @@ def solve_knapsack(weights, values, capacity):
     wt = [int(w * 100) for w in weights]
     val = [int(v * 100) for v in values]
     
-    # Dynamic Programming table to find optimal set x* [cite: 145, 146]
+    # 2D table to find optimal set x
     dp = np.zeros((n + 1, cap + 1))
     
     for i in range(1, n + 1):
@@ -109,5 +106,5 @@ selected_idx = solve_knapsack(W, U, epsilon_total)
 print(f"DP Mean Output M(X): {m_x:.4f}")
 print(f"\n--- FINAL OUTPUT: Optimized Provenance Trace (tau*) ---")
 for idx in selected_idx:
-    # Outputting the selected fields for the joint release A(X) [cite: 23, 145]
+    # Outputting the selected fields for the joint release A(X)
     print(f"REVEALED: {trace_candidates[idx]['name']} = {trace_candidates[idx]['value']}")
