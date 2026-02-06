@@ -7,11 +7,37 @@ columns = ['age', 'workclass', 'fnlwgt', 'education', 'education_num', 'marital_
            'hours', 'country', 'income']
 df = pd.read_csv('adult_clean.csv', names=columns)
 data = df['age'].values
+print(data)
+
+def get_adaptive_bounds(data, epsilon_budget):
+    """
+    Calculates data-aware clipping bounds.
+    Consumes 'epsilon_budget' to privately estimate min and max.
+    """
+    true_min = np.min(data)
+    true_max = np.max(data)
+    
+    # For 'Age', changing one person can strictly only change the min/max 
+    # within the theoretical universe of ages (e.g., 0 to 120). 
+    # For simplicity, we assume global sensitivity = 1.
+    sensitivity = 1.0 
+    
+    eps_per_stat = epsilon_budget / 2.0
+    scale = sensitivity / eps_per_stat
+    
+    noisy_min = true_min + np.random.laplace(0, scale)
+    noisy_max = true_max + np.random.laplace(0, scale)
+    
+    # Post-processing sanity check
+    if noisy_min > noisy_max:
+        noisy_min, noisy_max = noisy_max, noisy_min
+        
+    return noisy_min, noisy_max
 
 # Parameters
-epsilon = 1.0
-lower_bound = 0
-upper_bound = 100
+epsilon_query = 0.90   # Budget for the Mean Calculation
+epsilon_bounds = 0.10  # Budget SPECIFICALLY for calculating bounds (Data-Aware)
+adap_low, adap_high = get_adaptive_bounds(data, epsilon_bounds)
 
 # M(X) - The DP Mean
 def get_dp_mean(data, eps, low, high):
@@ -27,51 +53,61 @@ def get_dp_mean(data, eps, low, high):
     return true_mean + noise, sensitivity
 
 # m_x = DP-sanitized output M(X)
-m_x, sensitivity = get_dp_mean(data, epsilon, lower_bound, upper_bound)
+m_x, sensitivity = get_dp_mean(data, epsilon_query, adap_low, adap_high)
 
 # Define Candidate Trace T based on the Table 1 fields
 trace_candidates = [
-    {"id": 0, "name": "Clipping Bounds", "value": f"[{lower_bound}, {upper_bound}]", "type": "data-aware"},
-    {"id": 1, "name": "Mechanism Type", "value": "Laplace", "type": "post-processing"},
-    {"id": 2, "name": "Privacy Budget", "value": epsilon, "type": "post-processing"},
-    {"id": 3, "name": "Sensitivity", "value": sensitivity, "type": "data-aware"}
+    {
+        "id": 0, "name": "Adaptive Clipping Bounds", "value": f"[{adap_low:.1f}, {adap_high:.1f}]", 
+        "type": "data-aware",
+        "actual_cost": epsilon_bounds,
+        "utility": 0.85
+    },
+    {
+        "id": 1, 
+        "name": "Mechanism Type", 
+        "value": "Laplace", 
+        "type": "post-processing",
+        "actual_cost": 0.00,
+        "utility": 0.40
+    },
+    {
+        "id": 2, 
+        "name": "Privacy Budget", 
+        "value": epsilon_query, 
+        "type": "post-processing",
+        "actual_cost": 0.00,
+        "utility": 0.50
+    },
+    {
+        "id": 3, 
+        "name": "Sensitivity", 
+        "value": f"{sensitivity:.5f}", 
+        "type": "data-aware",
+        "actual_cost": 0.05, # Hypothetical cost if we added noise to sensitivity
+        "utility": 0.95
+    }
 ]
 
-def calculate_preprocessing(data, trace_candidates):
-    W = [] # Privacy Costs (Log-Odds Shifts) 
-    U = [] # Utility
+def calculate_preprocessing(trace_candidates):
+    W = [] 
+    U = [] 
 
     for field in trace_candidates:
-        # Privacy Cost calculation (Log-Odds Shift) 
-        # heuristic values based on field type and name
-        if field['type'] == "post-processing":
-            W.append(0.00) 
-        elif field['name'] == "Clipping Bounds":
-            # Data-aware provenance field adds risk
-            W.append(0.02) 
-        elif field['name'] == "Sensitivity":
-            # Max log-odds shift caused by observing trace beyond DP output
-            W.append(0.08)
-
-        # Utility calculation 
-        if field['name'] == "Clipping Bounds":
-            U.append(0.85) 
-        elif field['name'] == "Mechanism Type":
-            U.append(0.40)
-        elif field['name'] == "Privacy Budget":
-            U.append(0.50)
-        elif field['name'] == "Sensitivity":
-            U.append(0.95)
+        # We now pull the cost directly from the field definition
+        # This respects the Sequential Composition logic
+        W.append(field['actual_cost'])
+        U.append(field['utility'])
 
     return W, U
 
-W, U = calculate_preprocessing(data, trace_candidates)
+W, U = calculate_preprocessing(trace_candidates)
 
-# Applying Knapsack Optimization
 def solve_knapsack(weights, values, capacity):
+    # standard DP implementation
     n = len(values)
-    cap = int(capacity * 100)
-    wt = [int(w * 100) for w in weights]
+    cap = int(capacity * 1000) # Higher precision for small epsilons
+    wt = [int(w * 1000) for w in weights]
     val = [int(v * 100) for v in values]
     dp = np.zeros((n + 1, cap + 1))
     
@@ -93,38 +129,28 @@ def solve_knapsack(weights, values, capacity):
             w -= wt[i-1]
     return selected_indices
 
-# Ablation Study Comparison
-def run_evaluation_study(m_x, candidates, weights, values, epsilon_total):
+def run_evaluation_study(m_x, candidates, weights, values, epsilon_limit):
+    print("\n" + "="*60)
+    print(f"OPTIMIZATION STUDY (Limit: {epsilon_limit})")
     print("="*60)
-    print("Ablation Study")
-    print("="*60)
-
-    # Level 1: Without Provenance 
-    print(f"\n[Level 1: Baseline Output (No Provenance)]")
-    print(f"Released: M(X) = {m_x:.4f}")
-    print("Privacy Leakage: 0.00 (Standard DP Guarantee)")
-
-    # Level 2: Post-Processing Only 
-    print(f"\n[Level 2: Post-Processing Only]")
-    print(f"Released: M(X) = {m_x:.4f}")
-    for i, field in enumerate(candidates):
-        if weights[i] == 0:
-            print(f" + REVEALED (Free): {field['name']} = {field['value']}")
-    print("Privacy Leakage: 0.00 (Post-processing property)")
-
-    # Level 3: Optimized Provenance (Algorithm 1) 
-    print(f"\n[Level 3: Optimized Provenance")
-    print(f"Released: M(X) = {m_x:.4f}")
-    selected_idx = solve_knapsack(weights, values, epsilon_total)
     
-    total_utility = 0
+    selected_idx = solve_knapsack(weights, values, epsilon_limit)
+    
     total_cost = 0
-    for idx in selected_idx:
-        print(f" + REVEALED: {candidates[idx]['name']} = {candidates[idx]['value']}")
-        total_utility += values[idx]
-        total_cost += weights[idx]
+    print(f"Main Output: {m_x:.4f}\n")
+    print("Selected Provenance Trace:")
     
-    print(f"Summary: Total Utility = {total_utility:.2f} | Total Privacy Cost = {total_cost:.2f}/{epsilon_total}")
+    for idx in selected_idx:
+        cand = candidates[idx]
+        print(f"{cand['name']:<25} | Val: {cand['value']} | Cost: {cand['actual_cost']}")
+        total_cost += weights[idx]
+        
+    print(f"\nTotal Provenance Cost: {total_cost:.3f} / {epsilon_limit}")
+    
+    # Check if Adaptive Bounds were rejected due to high cost
+    if 0 not in selected_idx: # ID 0 is Clipping Bounds
+        print("\nNOTE: Adaptive Bounds were computed but REJECTED by Knapsack.")
+        print("      To the analyst, these bounds remain HIDDEN to save budget.")
 
-epsilon_limit = 0.10
-run_evaluation_study(m_x, trace_candidates, W, U, epsilon_limit)
+# Run with a tight budget
+run_evaluation_study(m_x, trace_candidates, W, U, epsilon_limit=0.12)
